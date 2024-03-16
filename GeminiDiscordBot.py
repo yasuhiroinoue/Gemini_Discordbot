@@ -15,7 +15,7 @@ message_history = {}
 load_dotenv()
 
 GOOGLE_AI_KEY = os.getenv("GOOGLE_AI_KEY")
-DISCORD_BOT_TOKEN = os.getenv("DISCORD_BOT_TOKEN4")
+DISCORD_BOT_TOKEN = os.getenv("DISCORD_BOT_TOKEN")
 MAX_HISTORY = int(os.getenv("MAX_HISTORY"))
 
 #---------------------------------------------AI Configuration-------------------------------------------------
@@ -158,7 +158,7 @@ def clean_discord_message(input_string):
     bracket_pattern = re.compile(r'<[^>]+>')
     return bracket_pattern.sub('', input_string)
 
-def resize_image_if_needed(image_bytes, file_extension, max_size_mb=5, step=10):
+def resize_image_if_needed(image_bytes, file_extension, max_size_mb=3, step=10):
     format_map = {'.png': 'PNG', '.jpg': 'JPEG', '.jpeg': 'JPEG', '.gif': 'GIF', '.webp': 'WEBP'}
     img_format = format_map.get(file_extension.lower(), 'JPEG')
     img_stream = io.BytesIO(image_bytes)
