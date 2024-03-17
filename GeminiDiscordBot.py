@@ -1,29 +1,27 @@
-﻿# Gemini DiscordBot using vertexai
-import os
+﻿import os
 import re
+
 import aiohttp
 import discord
+import google.generativeai as genai
 from discord.ext import commands
 from dotenv import load_dotenv
 from PIL import Image
 import io
 import base64
-import vertexai
-from vertexai import generative_models
-from vertexai.generative_models import Part
 
 message_history = {}
 
 load_dotenv()
-GCP_REGION = os.getenv("GCP_REGION")
-GCP_PROJECT_ID = os.getenv("GCP_PROJECT_ID")
-DISCORD_BOT_TOKEN = os.getenv("DISCORD_BOT_TOKEN")
-MAX_HISTORY = int(os.getenv("MAX_HISTORY"))
 
+GOOGLE_AI_KEY = os.getenv("GOOGLE_AI_KEY")
+DISCORD_BOT_TOKEN = os.getenv("DISCORD_BOT_TOKEN4")
+MAX_HISTORY = int(os.getenv("MAX_HISTORY"))
 
 #---------------------------------------------AI Configuration-------------------------------------------------
 
 # Configure the generative AI model
+genai.configure(api_key=GOOGLE_AI_KEY)
 text_generation_config = {
     "temperature": 0.9,
     "top_p": 1,
@@ -36,18 +34,14 @@ image_generation_config = {
     "top_k": 32,
     "max_output_tokens": 2048,
 }
-
-safety_config = {
-        generative_models.HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: generative_models.HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
-        generative_models.HarmCategory.HARM_CATEGORY_HARASSMENT: generative_models.HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
-}
-
-# Initialize Vertex AI
-vertexai.init(project=GCP_PROJECT_ID, location=GCP_REGION)
-
-# Load the model
-text_model = generative_models.GenerativeModel("gemini-pro")
-image_model = generative_models.GenerativeModel("gemini-1.0-pro-vision")
+safety_settings = [
+    {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_MEDIUM_AND_ABOVE"},
+    {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_MEDIUM_AND_ABOVE"},
+    {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_MEDIUM_AND_ABOVE"},
+    {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_MEDIUM_AND_ABOVE"}
+]
+text_model = genai.GenerativeModel(model_name="gemini-pro", generation_config=text_generation_config, safety_settings=safety_settings)
+image_model = genai.GenerativeModel(model_name="gemini-pro-vision", generation_config=image_generation_config, safety_settings=safety_settings)
 
 
 #---------------------------------------------Discord Code-------------------------------------------------
@@ -99,13 +93,14 @@ async def process_attachments(message, cleaned_text):
                         response_text = await generate_response_with_image_and_text(encoded_image_data, cleaned_text, mime_type)
                         await split_and_send_messages(message, response_text, 1700)
                         return
-                    update_message_history(message.author.id, cleaned_text, "USER")
+                    update_message_history(message.author.id, cleaned_text, "user")
                     image_data = await resp.read()
                     resized_image_stream = resize_image_if_needed(image_data, file_extension)
                     resized_image_data = resized_image_stream.getvalue()
                     encoded_image_data = base64.b64encode(resized_image_data).decode("utf-8")
-                    response_text = await generate_response_with_image_and_text(encoded_image_data, cleaned_text, mime_type)
-                    update_message_history(message.author.id, response_text, "MODEL")
+                    formatted_history = get_formatted_message_history(message.author.id)
+                    response_text = await generate_response_with_image_and_text(encoded_image_data, formatted_history, mime_type)
+                    update_message_history(message.author.id, response_text, "model")
                     await split_and_send_messages(message, response_text, 1700)
         else:
             supported_extensions = ', '.join(ext_to_mime.keys())
@@ -122,10 +117,10 @@ async def process_text_message(message, cleaned_text):
         response_text = await generate_response_with_text(cleaned_text)
         await split_and_send_messages(message, response_text, 1700)
         return
-    update_message_history(message.author.id, cleaned_text, "USER")
+    update_message_history(message.author.id, cleaned_text, "user")
     formatted_history = get_formatted_message_history(message.author.id)
     response_text = await generate_response_with_text(formatted_history)
-    update_message_history(message.author.id, response_text, "MODEL")
+    update_message_history(message.author.id, response_text, "model")
     await split_and_send_messages(message, response_text, 1700)
 
 #---------------------------------------------AI Generation History-------------------------------------------------
@@ -133,16 +128,17 @@ async def process_text_message(message, cleaned_text):
 async def generate_response_with_text(message_text):
     prompt_parts = [message_text]
     print("Got textPrompt: " + message_text)
-    response = text_model.generate_content(prompt_parts,generation_config=text_generation_config,safety_settings=safety_config,)
+    response = text_model.generate_content(prompt_parts)
+    if(response._error):
+        return "❌" +  str(response._error)
     return response.text
 
-async def generate_response_with_image_and_text(image_data, text, _mime_type):
-    # Construct image and text parts with Part class
-    image_part = Part.from_data(data=image_data, mime_type=_mime_type)
-    text_part = Part.from_text(text=f"\n{text if text else 'What is this a picture of?'}")
-    # Stored in list as prompt
-    prompt_parts = [image_part, text_part]
-    response = image_model.generate_content(prompt_parts,generation_config=image_generation_config,safety_settings=safety_config,)
+async def generate_response_with_image_and_text(image_data, text, mime_type):
+    image_parts = [{"mime_type": mime_type, "data": image_data}]
+    prompt_parts = [image_parts[0], f"\n{text if text else 'What is this a picture of?'}"]
+    response = image_model.generate_content(prompt_parts)
+    if(response._error):
+        return "❌" +  str(response._error)
     return response.text
 
 #---------------------------------------------Message History-------------------------------------------------
@@ -181,4 +177,3 @@ async def split_and_send_messages(message_system, text, max_length):
 
 # Run the bot
 bot.run(DISCORD_BOT_TOKEN)
-
